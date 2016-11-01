@@ -1,0 +1,132 @@
+#
+# syntax ./minio-h2o [endpoint=path]               -- default value "play.minio.io:9000"
+#                    [pathstyle=true | false]      -- default value  true 
+#                    [region="region-name"]        -- default value "us-east-1" (current bugged)
+#                    [accesskeyid="access-key"]    -- required if endpoint specified;   
+#                                                            else defaults to public minio accesskeyid
+#                    [secretkey="secret-key"]      -- required if endpoint specified; 
+#                                                            else defaults to public secretkey
+#
+
+# usage examples:
+#
+#     Start H2O poining at the public play.mino.io:9000 instance... 
+#
+#       ./minio-h2o      
+#
+#     Start H2O with a local Minio Server (replace "xxx" and "yyy" with appropriate keys)
+#       
+#       ./minio-h20  endpoint="localhost:9000" accesskey="xxx" secretkey="yyy"
+
+#
+#  Potential Changes (under consideration): 
+#    syntax change 
+#       - remove "play.minio.io:9000" as a default, 
+#       - add a --play option which would designate "play.minio.io:9000" as the minio server.
+#       - '--play' would fill in the accesskey and secretkey
+#    
+#   pull the accesskey and secret key from minio config file  (if possible; file many not be accessible)
+#
+
+# debug==0 implies no debugging output; >0 debugging output is on; >=5 set -x  
+debug=0
+(( $debug >= 5 )) && set -x
+
+# init all _parm_specified vars to 0 (not specified) 
+_endpoint_specified=0;  _pathstyle_specified=0;  _region_specified=0;  _accesskeyid_specified=0;  _secretkey_specified=0
+
+# set defaults for each parm that will be passed to the java command when we start H2O
+_endpoint="-Dsys.ai.h2o.persist.s3.endPoint=\"play.minio.io:9000\""
+_pathstyle="-Dsys.ai.h2o.persist.s3.enable.path.style=true"
+
+#BUG for now, default region to "" due to bug when setting region
+#BUG _region="-Dsys.ai.h2o.persist.s3.region=\"us-east-1\""
+_region=""
+
+# default credentials (access key and secret key) for "play.minio.io:9000" 
+_accesskeyid="-Daws.accessKeyId=\"Q3AM3UQ867SPQQA43P2F\""
+_secretkey="-Daws.secretKey=\"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG\""
+
+
+# parse parms
+while (( $# > 0 )); do
+   arg="$1"
+
+   [[ -z "$arg" ]] && continue # unexpected, no arg, get next
+
+   # parse off key (everything to left of "="); downshift to lowercase
+   key="${arg%=*}"
+   key="$(tr '[[:upper:]]' '[[:lower:]]' <<< $key)"
+   (( debug )) && echo key = "$key"
+
+   #parse off the value (everything to the right of "=")
+   value="${arg#*=}"
+   (( debug )) && echo value = "$value"
+
+   #determine if "key" is valid and setup parms as appropriate
+   case "$key" in
+     endpoint)
+       if [[ -n "$value" ]]; then           
+          # value explicitly specified ; use it
+          _endpoint="-Dsys.ai.h2o.persist.s3.endpoint=\"$value\""
+          _endpoint_specified=1
+       fi
+       ;;
+
+     region)
+       if [[ -n "$value" ]]; then           
+          # value explicitly specified ; use it
+          _region="-Dsys.ai.h2o.persist.s3.region=\"$value\""
+          _region_specified=1
+       fi
+       ;;
+
+     pathstyle)
+       if [[ -n "$value" ]]; then           
+          # value explicitly specified ; use it
+          _region="-Dsys.ai.h2o.persist.s3.path.style="$value""
+          _region_specified=1
+       fi
+       ;;
+
+     accesskeyid) 
+       if [[ -n "$value" ]]; then           
+          _accesskeyid="-Daws.accessKeyId=\"$value\""
+          _accesskeyid_specified=1
+       fi
+       ;;
+
+     secretkey) 
+       if [[ -n "$value" ]]; then           
+          _secretkey="-Daws.secretKey=\"$value\""
+          _secretkey_specified=1
+       fi
+       ;;
+
+      *) 
+       echo ERROR: Unepected-Key "$key"
+       exit
+   esac       # end case
+   shift 
+done
+
+#check for required parm combinations... 
+if (( _endpoint_specified==1  && ( _accesskeyid_specified != 1 || _secretkey_specified !=1 )  )); then 
+   echo ERROR: If endpoint="..." is specified, then both accesskeyid="..." and secretkey="..." must be specified.
+   exit
+fi
+
+# Potential to use H2O config option to force HTTP (instead of https); useful for local minio's that do
+# not have full DNS setup (and therefore do not have certificates for https)
+#
+# This does not currently work; appears to reset enpoint back to AWS (but actual problem may be something else)
+#
+# javaparms="$_endpoint $_pathstyle $_region $_accesskeyid $_secretkey -Dsys.ai.h2o.persist.s3.force.http=true -jar h2o.jar"
+
+javaparms="$_endpoint $_pathstyle $_region $_accesskeyid $_secretkey -jar h2o.jar"
+if (( debug )); then 
+   echo java $javaparms
+else
+   java $javaparms
+fi
+
